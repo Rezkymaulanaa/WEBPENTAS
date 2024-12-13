@@ -1,9 +1,12 @@
 from flask import Blueprint, request, jsonify, current_app
 from app import db
 from app.models.fasilitas import Fasilitas
+from app.models.peminjaman import Peminjaman
 from werkzeug.utils import secure_filename
 import os
 from datetime import datetime
+from sqlalchemy import text
+
 
 fasilitas_bp = Blueprint('fasilitas', __name__)
 
@@ -25,6 +28,8 @@ def get_all_fasilitas():
             'image2': f.image2,
             'image3': f.image3,
             'kapasitas': f.kapasitas,
+            'gedung': f.gedung,  # Menambahkan kolom gedung
+            'lantai': f.lantai,  # Menambahkan kolom lantai
             'created_at': f.created_at
         } for f in fasilitas])
     except Exception as e:
@@ -42,10 +47,13 @@ def get_fasilitas(id):
             'image2': fasilitas.image2,
             'image3': fasilitas.image3,
             'kapasitas': fasilitas.kapasitas,
+            'gedung': fasilitas.gedung,  
+            'lantai': fasilitas.lantai,  
             'created_at': fasilitas.created_at
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
 
 # Tambah fasilitas baru
 @fasilitas_bp.route('/fasilitas', methods=['POST'])
@@ -79,6 +87,8 @@ def add_fasilitas():
         new_fasilitas = Fasilitas(
             nama_fasilitas=data['nama_fasilitas'],
             kapasitas=data['kapasitas'],
+            gedung=data['gedung'],  # Menambahkan kolom gedung
+            lantai=data['lantai'],  # Menambahkan kolom lantai
             image=filenames[0],
             image2=filenames[1],
             image3=filenames[2]
@@ -91,7 +101,6 @@ def add_fasilitas():
             'message': 'Fasilitas berhasil ditambahkan',
             'id': new_fasilitas.id
         }), 201
-            
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -106,6 +115,8 @@ def update_fasilitas(id):
         # Update data teks
         fasilitas.nama_fasilitas = data['nama_fasilitas']
         fasilitas.kapasitas = data['kapasitas']
+        fasilitas.gedung = data['gedung']  # Menambahkan update untuk gedung
+        fasilitas.lantai = data['lantai']  # Menambahkan update untuk lantai
         
         # Fungsi untuk generate unique filename
         def get_unique_filename(original_filename):
@@ -143,7 +154,6 @@ def update_fasilitas(id):
             'message': 'Fasilitas berhasil diupdate',
             'id': fasilitas.id
         }), 200
-        
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -152,21 +162,19 @@ def update_fasilitas(id):
 @fasilitas_bp.route('/fasilitas/<int:id>', methods=['DELETE'])
 def delete_fasilitas(id):
     try:
-        # Cek apakah fasilitas digunakan di tabel peminjaman
-        peminjaman_check = db.session.execute(
-            "SELECT COUNT(*) FROM peminjaman WHERE id_fasilitas = :id",
-            {"id": id}
-        ).scalar()
+        # Cek apakah fasilitas digunakan di tabel peminjaman menggunakan ORM
+        peminjaman_check = db.session.query(Peminjaman).filter(Peminjaman.id_fasilitas == id).count()
 
+        # Jika ada peminjaman terkait, blokir penghapusan
         if peminjaman_check > 0:
             return jsonify({
                 'error': 'Fasilitas tidak dapat dihapus karena sedang digunakan dalam peminjaman'
             }), 400
 
-        # Jika aman, lakukan penghapusan
+        # Jika tidak ada peminjaman, lanjutkan dengan penghapusan fasilitas
         fasilitas = Fasilitas.query.get_or_404(id)
-        
-        # Hapus file gambar jika ada
+
+        # Hapus gambar jika ada
         if fasilitas.image:
             file_path = os.path.join(current_app.config['UPLOAD_FOLDER'], fasilitas.image)
             if os.path.exists(file_path):
@@ -180,13 +188,13 @@ def delete_fasilitas(id):
             if os.path.exists(file_path):
                 os.remove(file_path)
 
+        # Hapus fasilitas
         db.session.delete(fasilitas)
         db.session.commit()
-        
+
         return jsonify({'message': 'Fasilitas berhasil dihapus'})
+
     except Exception as e:
         db.session.rollback()
-        # Log error untuk debugging
-        print(f"Error saat menghapus fasilitas: {str(e)}")
-        return jsonify({'error': 'Terjadi kesalahan saat menghapus fasilitas'}), 500 
-        return jsonify({'error': str(e)}), 500 
+        print(f"Error saat menghapus fasilitas: {str(e)}")  # Tambahkan log error
+        return jsonify({'error': 'Terjadi kesalahan saat menghapus fasilitas'}), 500

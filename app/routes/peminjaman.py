@@ -111,7 +111,7 @@ def add_peminjaman():
             kontak_pj=data['kontak_pj'],
             keperluan=data['keperluan'],
             email=data['email'],
-            surat_peminjaman=filename
+            surat_peminjaman=filename,
         )
         
         db.session.add(new_peminjaman)
@@ -146,20 +146,27 @@ def update_status(id):
             }), 400
             
         # Validasi status yang diperbolehkan
-        allowed_status = ['pending', 'disposisi', 'disetujui', 'ditolak']
+        allowed_status = ['pending', 'disposisi', 'disetujui', 'ditolak', 'selesai']
         if data['status'] not in allowed_status:
             return jsonify({
                 'error': f'Status harus salah satu dari: {", ".join(allowed_status)}'
             }), 400
         
+        # Update status
         peminjaman.status = data['status']
+        
+        # Jika ada komentar, simpan komentar
+        if 'komentar' in data:
+            peminjaman.komentar = data['komentar']
+
         db.session.commit()
         
         return jsonify({
             'message': 'Status peminjaman berhasil diupdate',
             'data': {
                 'id': peminjaman.id,
-                'status': peminjaman.status
+                'status': peminjaman.status,
+                'komentar': peminjaman.komentar  # Kirim komentar dalam response
             }
         })
     except Exception as e:
@@ -168,6 +175,7 @@ def update_status(id):
             'error': str(e),
             'message': 'Gagal mengupdate status peminjaman'
         }), 500
+
 
 @peminjaman_bp.route('/peminjaman/fasilitas/<int:id_fasilitas>', methods=['GET'])
 def get_peminjaman_by_fasilitas(id_fasilitas):
@@ -179,6 +187,7 @@ def get_peminjaman_by_fasilitas(id_fasilitas):
         
         return jsonify([{
             'tanggal_mulai': p.tanggal_mulai.strftime('%Y-%m-%d'),
+            'tanggal_selesai': p.tanggal_selesai.strftime('%Y-%m-%d'),
             'waktu_mulai': p.waktu_mulai.strftime('%H:%M'),
             'waktu_selesai': p.waktu_selesai.strftime('%H:%M')
         } for p in peminjaman])
@@ -215,7 +224,8 @@ def get_peminjaman_by_user(user_id):
                     'waktu_mulai': p.waktu_mulai.strftime('%H:%M'),
                     'waktu_selesai': p.waktu_selesai.strftime('%H:%M'),
                     'status': p.status,
-                    'keperluan': p.keperluan
+                    'keperluan': p.keperluan,
+                    'komentar': p.komentar
                 })
         return jsonify(result)
     except Exception as e:
@@ -240,8 +250,44 @@ def get_user_peminjaman(email):
                 'waktu_selesai': p.waktu_selesai.strftime('%H:%M'),
                 'status': p.status,
                 'keperluan': p.keperluan,
+                'komentar': p.komentar,
                 'created_at': p.created_at.strftime('%Y-%m-%d %H:%M:%S')
             })
         return jsonify(result)
     except Exception as e:
         return jsonify({'error': str(e)}), 500 
+    
+# Route untuk mendapatkan fasilitas yang dipinjam pada tanggal tertentu
+@peminjaman_bp.route('/peminjaman/tanggal/<string:tanggal>', methods=['GET'])
+def get_peminjaman_by_date(tanggal):
+    try:
+        # Parse tanggal dari string
+        tanggal = datetime.strptime(tanggal, '%Y-%m-%d').date()
+        
+        # Cari peminjaman yang sedang atau akan dipinjam pada tanggal tersebut
+        peminjaman_list = Peminjaman.query.filter(
+            (Peminjaman.tanggal_mulai <= tanggal) & (Peminjaman.tanggal_selesai >= tanggal)
+        ).all()
+
+        result = []
+        for p in peminjaman_list:
+            fasilitas = Fasilitas.query.get(p.id_fasilitas)
+            
+            peminjaman_data = {
+                'id': p.id,
+                'nama_organisasi': p.nama_organisasi,
+                'penanggung_jawab': p.penanggung_jawab,
+                'nama_fasilitas': fasilitas.nama_fasilitas if fasilitas else None,
+                'tanggal_mulai': p.tanggal_mulai.strftime('%Y-%m-%d'),
+                'tanggal_selesai': p.tanggal_selesai.strftime('%Y-%m-%d'),
+                'waktu_mulai': p.waktu_mulai.strftime('%H:%M'),
+                'waktu_selesai': p.waktu_selesai.strftime('%H:%M'),
+                'status': p.status,
+                'keperluan': p.keperluan
+            }
+            result.append(peminjaman_data)
+        
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

@@ -9,40 +9,27 @@ auth_bp = Blueprint('auth', __name__)
 def login():
     try:
         data = request.get_json()
-        print("Request data:", data)
-        
         email = data.get('email')
         password = data.get('password')
-        print(f"Login attempt - Email: {email}, Password: {password}")
-        
+
         user = User.query.filter_by(email=email).first()
-        print("User found:", user)
-        
-        if user:
-            print(f"DB values - Email: {user.email}, Password: {user.password}, Role: {user.role}")
-        
-        if user and user.password == password:
+
+        if user and check_password_hash(user.password, password):
             return jsonify({
                 'message': 'Login berhasil',
                 'role': user.role,
                 'email': user.email
             })
-        
+
         return jsonify({
-            'message': 'Email atau password salah',
-            'debug': {
-                'input_email': email,
-                'input_password': password,
-                'user_exists': user is not None
-            }
+            'message': 'Email atau password salah'
         }), 401
-        
+
     except Exception as e:
-        print(f"Error: {str(e)}")
         return jsonify({
             'error': str(e),
             'message': 'Terjadi kesalahan pada server'
-        }), 500 
+        }), 500
 
 @auth_bp.route('/check-user/<email>', methods=['GET'])
 def check_user(email):
@@ -70,28 +57,30 @@ def users():
             } for user in users])
         except Exception as e:
             return jsonify({'error': str(e)}), 500
-            
+
     elif request.method == 'POST':
         try:
             data = request.get_json()
-            
+
             # Validasi input
             if not all(k in data for k in ['email', 'password', 'role']):
                 return jsonify({'error': 'Email, password dan role harus diisi'}), 400
-                
+
             # Cek email unik
             if User.query.filter_by(email=data['email']).first():
                 return jsonify({'error': 'Email sudah terdaftar'}), 400
-                
+
+            hashed_password = generate_password_hash(data['password'], method='pbkdf2:sha256', salt_length=8)
+
             new_user = User(
                 email=data['email'],
-                password=data['password'],
+                password=hashed_password,
                 role=data['role']
             )
-            
+
             db.session.add(new_user)
             db.session.commit()
-            
+
             return jsonify({
                 'message': 'User berhasil ditambahkan',
                 'data': {
@@ -100,7 +89,7 @@ def users():
                     'role': new_user.role
                 }
             }), 201
-            
+
         except Exception as e:
             db.session.rollback()
             return jsonify({'error': str(e)}), 500
@@ -111,20 +100,27 @@ def user_detail(id):
         try:
             user = User.query.get_or_404(id)
             data = request.get_json()
-            
+
+            # Update email
             if 'email' in data:
                 user.email = data['email']
-            if 'password' in data:
-                user.password = data['password']
+
+            # Update password jika ada
+            if 'password' in data and data['password']:
+                user.password = generate_password_hash(data['password'], method='pbkdf2:sha256', salt_length=8)
+
+            # Update role
             if 'role' in data:
+                if data['role'] not in ['mahasiswa', 'admin', 'dekan', 'wakil_dekan']:
+                    return jsonify({'error': 'Role tidak valid'}), 400
                 user.role = data['role']
-                
+
             db.session.commit()
             return jsonify({'message': 'User berhasil diupdate'})
         except Exception as e:
             db.session.rollback()
             return jsonify({'error': str(e)}), 500
-            
+
     elif request.method == 'DELETE':
         try:
             user = User.query.get_or_404(id)
@@ -135,22 +131,23 @@ def user_detail(id):
             db.session.rollback()
             return jsonify({'error': str(e)}), 500
 
+
 @auth_bp.route('/user-by-email', methods=['GET'])
 def get_user_by_email():
     try:
         email = request.args.get('email')
         if not email:
             return jsonify({'error': 'Email parameter required'}), 400
-            
+
         user = User.query.filter_by(email=email).first()
         if not user:
             return jsonify({'error': 'User not found'}), 404
-            
+
         return jsonify({
             'id': user.id,
             'email': user.email,
             'role': user.role
         })
-        
+
     except Exception as e:
         return jsonify({'error': str(e)}), 500

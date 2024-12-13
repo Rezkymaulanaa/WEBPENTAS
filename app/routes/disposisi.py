@@ -28,13 +28,18 @@ def get_all_disposisi():
 @disposisi_bp.route('/disposisi/<int:id>', methods=['GET'])
 def get_disposisi(id):
     try:
+        # Ambil data disposisi dengan relasi ke peminjaman
         disposisi = Disposisi.query.get_or_404(id)
-        peminjaman = Peminjaman.query.get(disposisi.id_peminjaman)
-        fasilitas = Fasilitas.query.get(peminjaman.id_fasilitas) if peminjaman else None
+        peminjaman = Peminjaman.query.get_or_404(disposisi.id_peminjaman)  # Relasi langsung ke Peminjaman
+        fasilitas = peminjaman.fasilitas if peminjaman else None  # Relasi ke Fasilitas
         
-        if not peminjaman or not fasilitas:
-            return jsonify({'error': 'Data tidak lengkap'}), 404
-            
+        # Pastikan data peminjaman dan fasilitas ada
+        if not peminjaman:
+            return jsonify({'error': 'Data peminjaman tidak ditemukan'}), 404
+        if not fasilitas:
+            return jsonify({'error': 'Data fasilitas tidak ditemukan'}), 404
+
+        # Format data untuk JSON response
         return jsonify({
             'id': disposisi.id,
             'id_peminjaman': disposisi.id_peminjaman,
@@ -42,22 +47,25 @@ def get_disposisi(id):
             'kepada': disposisi.kepada,
             'status_disposisi': disposisi.status_disposisi,
             'catatan': disposisi.catatan,
-            'created_at': disposisi.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+            'created_at': disposisi.created_at.strftime('%Y-%m-%d %H:%M:%S') if disposisi.created_at else None,
             'nama_organisasi': peminjaman.nama_organisasi,
             'penanggung_jawab': peminjaman.penanggung_jawab,
             'kontak_pj': peminjaman.kontak_pj,
             'email': peminjaman.email,
-            'tanggal_mulai': peminjaman.tanggal_mulai.strftime('%Y-%m-%d'),
-            'tanggal_selesai': peminjaman.tanggal_selesai.strftime('%Y-%m-%d'),
-            'waktu_mulai': peminjaman.waktu_mulai.strftime('%H:%M'),
-            'waktu_selesai': peminjaman.waktu_selesai.strftime('%H:%M'),
+            'tanggal_mulai': peminjaman.tanggal_mulai.strftime('%Y-%m-%d') if peminjaman.tanggal_mulai else None,
+            'tanggal_selesai': peminjaman.tanggal_selesai.strftime('%Y-%m-%d') if peminjaman.tanggal_selesai else None,
+            'waktu_mulai': peminjaman.waktu_mulai.strftime('%H:%M') if peminjaman.waktu_mulai else None,
+            'waktu_selesai': peminjaman.waktu_selesai.strftime('%H:%M') if peminjaman.waktu_selesai else None,
             'keperluan': peminjaman.keperluan,
             'surat_peminjaman': peminjaman.surat_peminjaman,
             'nama_fasilitas': fasilitas.nama_fasilitas
         })
     except Exception as e:
-        print(f"Error: {str(e)}")  # Tambahkan logging untuk debugging
-        return jsonify({'error': str(e)}), 500
+        # Log kesalahan untuk debugging
+        print(f"Error fetching disposisi: {str(e)}")
+        return jsonify({'error': 'Terjadi kesalahan, silakan coba lagi nanti.'}), 500
+
+
 
 # Tambah disposisi baru
 @disposisi_bp.route('/disposisi', methods=['POST'])
@@ -108,25 +116,30 @@ def update_status(id):
     try:
         disposisi = Disposisi.query.get_or_404(id)
         data = request.get_json()
-            
+
+        # Validasi status dan catatan
         if 'status_disposisi' not in data:
             return jsonify({'error': 'Status disposisi harus diisi'}), 400
-            
+
         allowed_status = ['pending', 'disetujui', 'ditolak']
         if data['status_disposisi'] not in allowed_status:
             return jsonify({'error': f'Status harus salah satu dari: {", ".join(allowed_status)}'}), 400
-            
+
         disposisi.status_disposisi = data['status_disposisi']
-            
-        # Update status peminjaman
-        peminjaman = Peminjaman.query.get(disposisi.id_peminjaman)
-        if peminjaman:
-            # Jika disposisi disetujui/ditolak, update status peminjaman
-            if data['status_disposisi'] in ['disetujui', 'ditolak']:
-                peminjaman.status = data['status_disposisi']
-            
+
+        # Simpan catatan jika status ditolak
+        if data['status_disposisi'] == 'ditolak':
+            if 'catatan' not in data or not data['catatan'].strip():
+                return jsonify({'error': 'Catatan penolakan harus diisi'}), 400
+            disposisi.catatan = data['catatan']
+
+            # Update komentar di peminjaman
+            peminjaman = Peminjaman.query.get(disposisi.id_peminjaman)
+            if peminjaman:
+                peminjaman.status = 'ditolak'
+                peminjaman.komentar = data['catatan']
+
         db.session.commit()
-            
         return jsonify({
             'message': 'Status berhasil diupdate',
             'status': disposisi.status_disposisi
@@ -134,6 +147,8 @@ def update_status(id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+
 
 @disposisi_bp.route('/peminjaman/wadek', methods=['GET'])
 def get_wadek_peminjaman():

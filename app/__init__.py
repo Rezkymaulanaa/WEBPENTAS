@@ -3,10 +3,12 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flask_migrate import Migrate
 from app.config import Config
+from flask_mail import Mail  # Import Mail
 import os
 
 db = SQLAlchemy()
 migrate = Migrate()
+mail = Mail()  # Inisialisasi objek Mail
 
 def create_app():
     app = Flask(__name__)
@@ -19,10 +21,11 @@ def create_app():
         }
     })
     app.config.from_object(Config)
-    
+
     db.init_app(app)
     migrate.init_app(app, db)
-    
+    mail.init_app(app)  # Inisialisasi Mail dengan app
+
     with app.app_context():
         # Import models
         from app.models.user import User
@@ -35,12 +38,14 @@ def create_app():
         from app.routes.fasilitas import fasilitas_bp
         from app.routes.peminjaman import peminjaman_bp
         from app.routes.disposisi import disposisi_bp
+        from app.routes.contact import contact_bp  # Import Blueprint contact
         
         # Register blueprints
         app.register_blueprint(auth_bp)
         app.register_blueprint(fasilitas_bp)
         app.register_blueprint(peminjaman_bp)
         app.register_blueprint(disposisi_bp)
+        app.register_blueprint(contact_bp)
         
         # Create tables
         db.create_all()
